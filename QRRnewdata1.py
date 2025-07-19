@@ -1,13 +1,31 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+#Prep dictionaries and lists
+monthly = {}
+yearly= {}
+month = []
+b = []
+
+#Insert data into into list and create A with periodic fit
+with open("C:\\Users\jamil\Documents\APPM3310\data.txt", "r") as file: #insert .txt file path into ("...")
+    lines = [float(line.rstrip()) for line in file]
+file.close()
+for i in range(len(lines)):
+    monthly[i+1] = lines[i]
+    month.append((i+1)/12)
+    b.append(lines[i])
+
+t = np.array(month)
+A = np.vstack([np.ones(len(t)),np.cos((2*np.pi)*t),np.sin((2*np.pi)*t)]).T
+b = np.array(b)
+
 # QRR core functions
 def QRR(A):
     """
     Recursive QR decomposition algorithm (QRR).
     """
     n, m = A.shape
-    print(n,m)
 
     #Base case: m = 1 (single column)
     if m == 1:
@@ -38,10 +56,7 @@ def QRR(A):
         
         #Clean R, turn very small numbers to 0
         R[np.abs(R) < 1e-13] = 0
-        print("new reflection")
-        print("R",R)
-        #print("W",W)
-        #print("Y",Y)
+
         return R, W, Y
     
     #Recursive case
@@ -52,37 +67,24 @@ def QRR(A):
     #Compute QR decomposition of left half
     left_half = A[:, :floor_m_2]
     R_L, W_L, Y_L = QRR(left_half)
-    print("QRRleft")
     
     #Update right half of A
     A_right = A[:, floor_m_2:].copy()
     Y_L_A_right = Y_L @ A_right
     W_L_Y_L_A_right = W_L @ Y_L_A_right
     A_right = A_right - W_L_Y_L_A_right
-    print("transformation applied")
     
     #Compute QR decomposition of bottom-right block
     A_right_bottom = A_right[floor_m_2:, :]
     R_R, W_R, Y_R = QRR(A_right_bottom)
-    print("QRRright")
     
     #Construct X matrix
     zeros_top = np.zeros((floor_m_2, floor_m_2))
     W_L_bottom = W_L[floor_m_2:, :]
-    
-    
-    #Match Y_R and W_L_bottom dimensions
-    if Y_R.shape[1] != n - floor_m_2:
-        Y_R_reshaped = np.zeros((ceil_m_2, n - floor_m_2))
-        min_dim = min(Y_R.shape[1], n - floor_m_2)
-        Y_R_reshaped[:, :min_dim] = Y_R[:, :min_dim]
-        Y_R = Y_R_reshaped
-    
     Y_R_W_L_bottom = Y_R @ W_L_bottom
     X_bottom = W_R @ Y_R_W_L_bottom
     X_diff = np.vstack([zeros_top, X_bottom])
     X = W_L - X_diff
-    print("X", X.shape)
     
     #Construct R matrix m×m 
     R = np.zeros((m, m))
@@ -91,85 +93,60 @@ def QRR(A):
     R[floor_m_2:, floor_m_2:] = R_R
     #Clean R
     R[np.abs(R) < 1e-13] = 0.0
-    print("R shape",R.shape)
 
     #Construct W matrix n×m
     W_right = np.vstack([np.zeros((floor_m_2, ceil_m_2)), W_R])
     W = np.hstack([X, W_right])
-    print("W shape",W.shape)
     
     #Construct Y matrix m×n
     Y_top = Y_L
     Y_R_padded = np.zeros((ceil_m_2, n))
     Y_R_padded[:, floor_m_2:] = Y_R
     Y = np.vstack([Y_top, Y_R_padded])
-    print("Y shape",Y.shape)
-    print("new outputs")
-    print("R",R)
-    #print("W",W)
-    #print("Y",Y)
+
     return R, W, Y
+
+R, W, Y = QRR(A)
 
 def construct_Q(W, Y):
     """
     Construct Q matrix from W and Y where Q = I - WY.
     """
     n = W.shape[0]
-    Q = np.eye(n) - W@Y
-    print("Qshape",Q.shape)
-    return Q
-A = np.random.uniform(low=-5, high=5, size=(10,5))
+    Q_T = np.eye(n) - W@Y
+    Q =Q_T.T
 
-def least_squares_qrr(A, b):
+    return Q
+
+Q = construct_Q(W, Y)
+
+def least_squares_qrr(A, Q, R, b):
     """Solve least squares problem using QRR algorithm"""
-    n, m = A.shape
-    
-    #Compute QR decomposition
-    R, W, Y = QRR(A)
-    
-    #Compute Q
-    Q = construct_Q(W, Y)
-    
+    m = A.shape[1]
+
     #Solve least squares: x = R^-1 * Q^T * b
     Qb = Q.T @ b
-    print(Qb.shape)
-    print(R.shape)
+
     #Back-substitution to solve R*x = Q^T*b with BLAS
     x = np.linalg.solve(R, Qb[:m])
     return x
 
-#Prep dictionaries and lists
-monthly_kva = {}
-yearly_kva = {}
-month = []
-b = []
-
-#Insert data into into list and create A with periodic fit
-with open("C:\\Users\jamil\Documents\APPM3310\data.txt", "r") as file: #insert .txt file path into ("...")
-    lines = [float(line.rstrip()) for line in file]
-file.close()
-for i in range(len(lines)):
-    monthly_kva[i+1] = lines[i]
-    month.append((i+1)/12)
-    b.append(lines[i])
-
-t = np.array(month)
-A = np.vstack([np.ones(len(t)),np.cos((2*np.pi)*t),np.sin((2*np.pi)*t)]).T
-#A = np.vstack([np.ones(len(t)),np.cos((2*np.pi)*t),np.sin((2*np.pi)*t),np.cos((4*np.pi)*t)]).T
-b = np.array(b)
-
 #QRR implementation
-QR = least_squares_qrr(A, b)
+QR = least_squares_qrr(A, Q, R, b)
 print(QR)
+n,m = A.shape
+R_pad = np.vstack([R,np.zeros((n-m,m))])
+print("R_pad shape", R_pad)
+print("A:",A)
+print("Q@R", Q@R_pad)
+print("Error:", np.linalg.norm(A-Q@R_pad,2))
 
 f = lambda t: QR[0]+QR[1]*np.cos(2*np.pi*t)+QR[2]*np.sin(2*np.pi*t)
-#f = lambda t: QR[0]+QR[1]*np.cos(2*np.pi*t)+QR[2]*np.sin(2*np.pi*t)+QR[3]*np.cos(4*np.pi*t)
 tt = np.linspace(0, 5, 1000)
 ax = plt.axes()
-colors = ['red','green','magenta','gray','pink','orange','cyan','lime','indigo','coral','lightyellow','darkmagenta']
 plt.plot(tt, f(tt), label='periodic fit')
 for i in range(len(b)):
-   plt.plot(t[i], b[i], marker="o")
+   plt.plot(t[i], b[i], marker="o", c='black')
 plt.title("Periodic fit of UV irradiance from JAN 2020 to DEC 2024")
 plt.ylabel("Monthly AVG Global Horizontal UV Irradiance(kWh/m^2/day)")
 plt.xlabel("year t")
